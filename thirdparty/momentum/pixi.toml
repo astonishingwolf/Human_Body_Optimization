@@ -1,0 +1,532 @@
+[workspace]
+name = "momentum"
+channels = ["conda-forge"]
+platforms = ["linux-64"]  # Temporarily limited to linux-64 for building on Linux
+# platforms = ["linux-64", "osx-64", "osx-arm64", "win-64"]  # Original multi-platform config
+version = "0.1.0"
+description = "A library providing foundational algorithms for human kinematic motion and numerical optimization solvers to apply human motion in various applications"
+license = "MIT"
+readme = "README.md"
+homepage = "https://facebookresearch.github.io/momentum/"
+repository = "https://github.com/facebookresearch/momentum"
+
+[dependencies]
+# build and test dependencies
+c-compiler = ">=1.11.0,<2"
+clang-format = "==21.1.2"
+cmake = ">=3.28.0,<4"
+cxx-compiler = ">=1.11.0,<2"
+gtest = ">=1.17.0,<2"
+libboost-devel = ">=1.84.0,<2"
+ninja = ">=1.13.1,<2"
+rerun-sdk = ">=0.23.3,<0.24"
+pip = ">=25.2,<26"
+pybind11 = ">=2.13.6,<4"
+pytest = ">=8.4.2,<9"
+scikit-build-core = ">=0.10.0,<0.11"
+scipy = ">=1.10.0,<2"
+setuptools = ">=80.9.0,<81"
+setuptools-scm = ">=8.0.0,<9"
+sphinx = ">=7.0.0,<9"
+sphinx-rtd-theme = ">=3.0.2,<4"
+tracy-profiler-gui = ">=0.11.1,<0.13"
+twine = ">=6.1.0,<7"
+jinja2 = ">=3.1.0,<4"
+cibuildwheel = ">=2.22.0,<3"
+
+# runtime dependencies
+blas = ">=2.135,<3"
+ceres-solver = ">=2.2.0,<3"
+cli11 = ">=2.5.0,<3"
+dispenso = ">=1.4.0,<2"
+eigen = ">=3.4.0,<4"
+ezc3d = ">=1.5.19,<2"
+drjit-cpp = ">=1.2.0,<2"
+fmt = ">=11.2.0,<12"
+fx-gltf = ">=2.0.0,<3"
+indicators = ">=2.3,<3"
+kokkos = ">=4.6.2,<5"
+librerun-sdk = ">=0.23.3,<0.24"
+ms-gsl = ">=4.2.0,<5"
+nlohmann_json = ">=3.12.0,<4"
+openfbx = ">=0.9,<0.10"
+openusd = ">=25.05,<26"
+openssl = ">=3.5.4,<4"
+pytorch = ">=2.8.0,<3"
+re2 = ">=2025.8.12,<2026"
+spdlog = ">=1.15.3,<2"
+tracy-profiler-client = ">=0.12.2,<0.13"
+urdfdom = ">=4.0.1,<5"
+zlib = ">=1.3.1,<2"
+
+[tasks]
+clean = { cmd = """
+    rm -rf build \
+    && rm -rf .pixi \
+    && rm pixi.lock
+    """, description = "Clean all build artifacts and pixi cache" }
+lint = { cmd = "clang-format -i axel/**/*.h axel/**/*.cpp momentum/**/*.h momentum/**/*.cpp pymomentum/**/*.h pymomentum/**/*.cpp", description = "Format C++ code using clang-format" }
+lint-check = { cmd = "clang-format --dry-run --Werror axel/**/*.h axel/**/*.cpp momentum/**/*.h momentum/**/*.cpp pymomentum/**/*.h pymomentum/**/*.cpp", description = "Check if code is properly formatted without modifying files" }
+config = { cmd = """
+    cmake \
+        -S . \
+        -B build/$PIXI_ENVIRONMENT_NAME/cpp/release \
+        -G Ninja \
+        -DCMAKE_BUILD_TYPE=Release \
+        -DCMAKE_INSTALL_PREFIX=$CONDA_PREFIX \
+        -DBUILD_SHARED_LIBS=ON \
+        -DMOMENTUM_ENABLE_FBX_SAVING=$MOMENTUM_ENABLE_FBX_SAVING \
+        -DMOMENTUM_BUILD_TESTING=ON \
+        -DMOMENTUM_BUILD_EXAMPLES=ON \
+        -DMOMENTUM_BUILD_PYMOMENTUM=$MOMENTUM_BUILD_PYMOMENTUM \
+        -DMOMENTUM_ENABLE_PROFILING=ON \
+        -DMOMENTUM_ENABLE_SIMD=$MOMENTUM_ENABLE_SIMD \
+        -DMOMENTUM_INSTALL_EXAMPLES=ON \
+        -DMOMENTUM_USE_SYSTEM_GOOGLETEST=ON \
+        -DMOMENTUM_USE_SYSTEM_PYBIND11=ON \
+        -DMOMENTUM_USE_SYSTEM_RERUN_CPP_SDK=ON \
+        -DMOMENTUM_USE_SYSTEM_TRACY=ON
+    """, env = { MOMENTUM_ENABLE_FBX_SAVING = "OFF", MOMENTUM_ENABLE_SIMD = "ON", MOMENTUM_BUILD_PYMOMENTUM = "ON" }, description = "Configure CMake for Release build" }
+config_dev = { cmd = """
+    cmake \
+        -S . \
+        -B build/$PIXI_ENVIRONMENT_NAME/cpp/debug \
+        -G Ninja \
+        -DCMAKE_BUILD_TYPE=Debug \
+        -DCMAKE_INSTALL_PREFIX=$CONDA_PREFIX \
+        -DBUILD_SHARED_LIBS=ON \
+        -DMOMENTUM_ENABLE_FBX_SAVING=$MOMENTUM_ENABLE_FBX_SAVING \
+        -DMOMENTUM_BUILD_TESTING=ON \
+        -DMOMENTUM_BUILD_EXAMPLES=ON \
+        -DMOMENTUM_BUILD_PYMOMENTUM=$MOMENTUM_BUILD_PYMOMENTUM \
+        -DMOMENTUM_ENABLE_PROFILING=ON \
+        -DMOMENTUM_ENABLE_SIMD=$MOMENTUM_ENABLE_SIMD \
+        -DMOMENTUM_INSTALL_EXAMPLES=ON \
+        -DMOMENTUM_USE_SYSTEM_GOOGLETEST=ON \
+        -DMOMENTUM_USE_SYSTEM_PYBIND11=ON \
+        -DMOMENTUM_USE_SYSTEM_RERUN_CPP_SDK=ON \
+        -DMOMENTUM_USE_SYSTEM_TRACY=ON
+    """, env = { MOMENTUM_ENABLE_FBX_SAVING = "OFF", MOMENTUM_ENABLE_SIMD = "ON", MOMENTUM_BUILD_PYMOMENTUM = "ON" }, description = "Configure CMake for Debug build" }
+build = { cmd = "cmake --build build/$PIXI_ENVIRONMENT_NAME/cpp/release -j --target all", depends-on = [
+    "config",
+], description = "Build Release version" }
+build_dev = { cmd = "cmake --build build/$PIXI_ENVIRONMENT_NAME/cpp/debug -j --target all", depends-on = [
+    "config_dev",
+], description = "Build Debug version" }
+build_fast = { cmd = "cmake --build build/$PIXI_ENVIRONMENT_NAME/cpp/release -j4 --target all", depends-on = [
+    "config",
+], description = "Build Release version with limited parallelism" }
+test = { cmd = "ctest --test-dir build/$PIXI_ENVIRONMENT_NAME/cpp/release --output-on-failure", depends-on = [
+    "build",
+], description = "Run C++ tests (Release)" }
+test_dev = { cmd = "ctest --test-dir build/$PIXI_ENVIRONMENT_NAME/cpp/debug --output-on-failure", depends-on = [
+    "build_dev",
+], description = "Run C++ tests (Debug)" }
+test_verbose = { cmd = "ctest --test-dir build/$PIXI_ENVIRONMENT_NAME/cpp/release --output-on-failure --verbose", depends-on = [
+    "build",
+], description = "Run C++ tests with verbose output" }
+hello_world = { cmd = "build/$PIXI_ENVIRONMENT_NAME/cpp/release/hello_world", depends-on = [
+    "build",
+], description = "Run hello world example" }
+convert_model = { cmd = "build/$PIXI_ENVIRONMENT_NAME/cpp/release/convert_model", depends-on = [
+    "build",
+], description = "Run model conversion tool" }
+c3d_viewer = { cmd = "build/$PIXI_ENVIRONMENT_NAME/cpp/release/c3d_viewer", depends-on = [
+    "build",
+], description = "Run C3D file viewer" }
+fbx_viewer = { cmd = "build/$PIXI_ENVIRONMENT_NAME/cpp/release/fbx_viewer", depends-on = [
+    "build",
+], description = "Run FBX file viewer" }
+glb_viewer = { cmd = "build/$PIXI_ENVIRONMENT_NAME/cpp/release/glb_viewer", depends-on = [
+    "build",
+], description = "Run GLB file viewer" }
+urdf_viewer = { cmd = "build/$PIXI_ENVIRONMENT_NAME/cpp/release/urdf_viewer", depends-on = [
+    "build",
+], description = "Run URDF file viewer" }
+process_markers = { cmd = "build/$PIXI_ENVIRONMENT_NAME/cpp/release/process_markers_app", depends-on = [
+    "build",
+], description = "Run marker processing application" }
+refine_motion = { cmd = "build/$PIXI_ENVIRONMENT_NAME/cpp/release/refine_motion", depends-on = [
+    "build",
+], description = "Run motion refinement tool" }
+export_objs = { cmd = "build/$PIXI_ENVIRONMENT_NAME/cpp/release/export_objs", depends-on = [
+    "build",
+], description = "Export animated mesh sequence as objs" }
+animate_shapes = { cmd = "build/$PIXI_ENVIRONMENT_NAME/cpp/release/animate_shapes", depends-on = [
+    "build",
+], description = "Export animation of blendshapes" }
+
+install = { cmd = "cmake --build build/$PIXI_ENVIRONMENT_NAME/cpp/release -j --target install", depends-on = [
+    "build",
+], description = "Install built libraries and executables" }
+tracy = { cmd = "tracy-profiler", description = "Launch Tracy profiler GUI" }
+test_py = { cmd = "pytest pymomentum/test/*.py", env = { MOMENTUM_MODELS_PATH = "momentum/" }, depends-on = [
+    "build_py",
+], description = "Run Python tests" }
+test_py_verbose = { cmd = "pytest pymomentum/test/*.py -v", env = { MOMENTUM_MODELS_PATH = "momentum/" }, depends-on = [
+    "build_py",
+], description = "Run Python tests with verbose output" }
+doc_py = { cmd = "sphinx-build -a -E -W -b html pymomentum/doc build/python_api_doc", depends-on = [
+    "build_py",
+], description = "Build Python API documentation with warnings as errors" }
+open_doc_py = { cmd = "open build/python_api_doc/index.html", depends-on = [
+    "doc_py",
+], description = "Open Python documentation in browser" }
+
+# ==================
+# PyPI Publishing
+# ==================
+# CPU environments (py312, py313) build CPU wheels
+# GPU environments (py312-cuda129, py313-cuda129) build GPU wheels
+# Usage:
+#   CPU: pixi run -e py312 wheel_build
+#   GPU: pixi run -e py312-cuda129 wheel_build
+
+# Generate pyproject-pypi-{cpu,gpu}.toml from template
+# This task is mainly for CI. For local use, run directly:
+#   python scripts/generate_pyproject.py --torch-min-py312 X.X --torch-max-py312 X.X --torch-min-py313 Y.Y --torch-max-py313 Y.Y
+generate_pyproject = { cmd = "python scripts/generate_pyproject.py", description = "Generate pyproject-pypi-{cpu,gpu}.toml from template (uses defaults from script)" }
+
+# Clean wheel build artifacts
+wheel_clean = { cmd = """
+    rm -rf dist wheelhouse; \
+    find build -maxdepth 1 -type f \\( -name '*.whl' -o -name '*.tar.gz' \\) -delete 2>/dev/null || true
+""", description = "Clean wheel build artifacts for a fresh start" }
+
+# Check wheel files with twine
+wheel_check = { cmd = "twine check dist/pymomentum_*.whl", depends-on = [
+    "wheel_build",
+], description = "Check wheel files with twine" }
+
+# Test wheel imports in a clean environment using uv
+wheel_test = { cmd = "python scripts/test_wheel.py", depends-on = [
+    "wheel_build",
+], description = "Test wheel imports in a clean virtual environment using uv" }
+
+# Publish to TestPyPI for testing
+wheel_publish_testpypi = { cmd = "twine upload --repository testpypi --skip-existing dist/pymomentum_*.whl", depends-on = [
+    "wheel_check",
+    "wheel_test",
+], description = "Publish to TestPyPI for testing" }
+
+# CPU-specific PyPI tasks - build CPU wheels (default)
+# CPU environments (py312, py313) use these tasks
+wheel_build = { cmd = """
+    python -c "import sys, os, shutil; py_ver = str(sys.version_info.major) + str(sys.version_info.minor); os.makedirs('.tmp', exist_ok=True); shutil.copy('pyproject.toml', '.tmp/pyproject-backup.toml'); shutil.copy(f'pyproject-pypi-cpu-py{py_ver}.toml', 'pyproject.toml')" && \
+    pip wheel . --no-deps --no-build-isolation --wheel-dir=dist && \
+    python -c "import shutil; shutil.move('.tmp/pyproject-backup.toml', 'pyproject.toml')"
+""", depends-on = [
+    "generate_pyproject",
+], description = "Build CPU wheel for current Python version" }
+
+wheel_repair = { cmd = "echo 'wheel_repair is handled by platform-specific tasks'", description = "Repair wheel (platform-specific, see target.*.tasks)" }
+
+wheel_publish = { cmd = "twine upload --repository pymomentum-cpu dist/pymomentum_cpu-*.whl", depends-on = [
+    "wheel_check",
+    "wheel_test",
+], description = "Publish CPU wheels to PyPI" }
+
+#===========
+# linux-64
+#===========
+
+[target.linux-64.dependencies]
+nvtx-c = ">=3.1.0" # TODO: Add to pytorch as run dep
+sysroot_linux-64 = ">=2.28,<3"
+patchelf = ">=0.17.2,<0.18"
+auditwheel = ">=6.4.2,<7"
+podman = ">=5.0.0,<6"
+
+[target.linux-64.tasks]
+# Linux CPU wheel build uses cibuildwheel with podman to produce manylinux_2_28 wheels
+wheel_build = { cmd = "python scripts/generate_pyproject.py && (rm -rf build/cp* 2>/dev/null || true) && cp pyproject.toml .tmp-pyproject-backup.toml && cp pyproject-pypi-cpu-py$(python -c 'import sys; print(str(sys.version_info.major)+str(sys.version_info.minor))').toml pyproject.toml && CIBW_CONTAINER_ENGINE=podman CIBW_BUILD=\"cp$(python -c 'import sys; print(str(sys.version_info.major)+str(sys.version_info.minor))')-manylinux_x86_64\" cibuildwheel --platform linux --output-dir dist . ; mv .tmp-pyproject-backup.toml pyproject.toml && echo 'Wheels created:' && ls -la dist/", description = "Build CPU wheel using cibuildwheel in manylinux_2_28 container (Linux)" }
+
+wheel_repair = { cmd = "echo 'wheel_repair: cibuildwheel already handled repair in wheel_build'", description = "Repair handled by cibuildwheel (no-op on Linux)" }
+
+# TODO: Check sha256 of fbx202037_fbxsdk_linux
+install_fbxsdk = { cmd = """
+    mkdir -p .deps \
+        && curl -fsSL https://damassets.autodesk.net/content/dam/autodesk/www/files/fbx202037_fbxsdk_gcc_linux.tar.gz -o .deps/fbx_sdk.tar.gz \
+        && mkdir -p .deps/fbxsdk_download \
+        && tar -xzf .deps/fbx_sdk.tar.gz -C .deps/fbxsdk_download \
+        && rm .deps/fbx_sdk.tar.gz \
+        && chmod ugo+x .deps/fbxsdk_download/fbx202037_fbxsdk_linux \
+        && mkdir -p .deps/fbxsdk/2020.3.7 \
+        && yes yes | .deps/fbxsdk_download/fbx202037_fbxsdk_linux .deps/fbxsdk/2020.3.7 \
+        && rm -rf .deps/fbxsdk_download/fbx202037_fbxsdk_linux
+""", outputs = [
+    ".deps/fbxsdk/2020.3.7",
+] }
+install_deps = { depends-on = ["install_fbxsdk"] }
+config = { cmd = """
+    cmake \
+        -S . \
+        -B build/$PIXI_ENVIRONMENT_NAME/cpp/release \
+        -G Ninja \
+        -DCMAKE_BUILD_TYPE=Release \
+        -DCMAKE_INSTALL_PREFIX=$CONDA_PREFIX \
+        -DBUILD_SHARED_LIBS=ON \
+        -DMOMENTUM_ENABLE_FBX_SAVING=ON \
+        -DMOMENTUM_BUILD_TESTING=ON \
+        -DMOMENTUM_BUILD_EXAMPLES=ON \
+        -DMOMENTUM_BUILD_PYMOMENTUM=$MOMENTUM_BUILD_PYMOMENTUM \
+        -DMOMENTUM_ENABLE_PROFILING=ON \
+        -DMOMENTUM_ENABLE_SIMD=$MOMENTUM_ENABLE_SIMD \
+        -DMOMENTUM_INSTALL_EXAMPLES=ON \
+        -DMOMENTUM_USE_SYSTEM_GOOGLETEST=ON \
+        -DMOMENTUM_USE_SYSTEM_PYBIND11=ON \
+        -DMOMENTUM_USE_SYSTEM_RERUN_CPP_SDK=ON \
+        -DMOMENTUM_USE_SYSTEM_TRACY=ON
+    """, env = { FBXSDK_PATH = ".deps/fbxsdk", MOMENTUM_ENABLE_SIMD = "ON", MOMENTUM_BUILD_PYMOMENTUM = "ON" }, depends-on = [
+    "install_deps",
+] }
+config_dev = { cmd = """
+    cmake \
+        -S . \
+        -B build/$PIXI_ENVIRONMENT_NAME/cpp/debug \
+        -G Ninja \
+        -DCMAKE_BUILD_TYPE=Debug \
+        -DCMAKE_INSTALL_PREFIX=$CONDA_PREFIX \
+        -DBUILD_SHARED_LIBS=ON \
+        -DMOMENTUM_ENABLE_FBX_SAVING=ON \
+        -DMOMENTUM_BUILD_TESTING=ON \
+        -DMOMENTUM_BUILD_EXAMPLES=ON \
+        -DMOMENTUM_BUILD_PYMOMENTUM=$MOMENTUM_BUILD_PYMOMENTUM \
+        -DMOMENTUM_ENABLE_PROFILING=ON \
+        -DMOMENTUM_ENABLE_SIMD=$MOMENTUM_ENABLE_SIMD \
+        -DMOMENTUM_INSTALL_EXAMPLES=ON \
+        -DMOMENTUM_USE_SYSTEM_GOOGLETEST=ON \
+        -DMOMENTUM_USE_SYSTEM_PYBIND11=ON \
+        -DMOMENTUM_USE_SYSTEM_RERUN_CPP_SDK=ON \
+        -DMOMENTUM_USE_SYSTEM_TRACY=ON
+    """, env = { FBXSDK_PATH = ".deps/fbxsdk", MOMENTUM_ENABLE_SIMD = "ON", MOMENTUM_BUILD_PYMOMENTUM = "ON" }, depends-on = [
+    "install_deps",
+] }
+build_py = { cmd = "pip install . -v --no-build-isolation", env = { FBXSDK_PATH = ".deps/fbxsdk", CMAKE_ARGS = """
+    -DMOMENTUM_ENABLE_FBX_SAVING=ON \
+    -DMOMENTUM_ENABLE_SIMD=$MOMENTUM_ENABLE_SIMD \
+    -DMOMENTUM_USE_SYSTEM_GOOGLETEST=ON \
+    -DMOMENTUM_USE_SYSTEM_PYBIND11=OFF \
+    -DMOMENTUM_USE_SYSTEM_RERUN_CPP_SDK=ON \
+    -DBUILD_SHARED_LIBS=OFF
+""", MOMENTUM_ENABLE_SIMD = "ON", TORCH_CUDA_ARCH_LIST = "5.0;6.0;6.1;7.0;7.5;8.0;8.6;8.9;9.0+PTX" }, depends-on = [
+    "install_deps",
+] }
+test_py = { cmd = "pytest pymomentum/test/*.py", env = { MOMENTUM_MODELS_PATH = "momentum/" }, depends-on = [
+    "build_py",
+] }
+doc_py = { cmd = "sphinx-build -a -E -W -b html pymomentum/doc build/python_api_doc", depends-on = [
+    "build_py",
+] }
+open_doc_py = { cmd = "open build/python_api_doc/index.html", depends-on = [
+    "doc_py",
+] }
+
+#============
+# osx-64
+#============
+# Commented out - only building for linux-64
+
+# [target.osx.dependencies]
+
+# [target.osx.tasks]
+# build_py = { cmd = "pip install . -v", env = { CMAKE_ARGS = """
+#     -DMOMENTUM_ENABLE_FBX_SAVING=$MOMENTUM_ENABLE_FBX_SAVING \
+#     -DMOMENTUM_ENABLE_SIMD=$MOMENTUM_ENABLE_SIMD \
+#     -DMOMENTUM_USE_SYSTEM_GOOGLETEST=ON \
+#     -DMOMENTUM_USE_SYSTEM_PYBIND11=ON \
+#     -DMOMENTUM_USE_SYSTEM_RERUN_CPP_SDK=ON \
+#     -DBUILD_SHARED_LIBS=OFF
+# """, MOMENTUM_ENABLE_FBX_SAVING = "OFF", MOMENTUM_ENABLE_SIMD = "ON" } }
+# # TODO: Remove -k option, once saving tests are disabled programmatically when Autodesk FBX SDK is unavailable (FBX loading always works via OpenFBX)
+# test_py = { cmd = "pytest pymomentum/test/*.py -k 'not (TestFBXIO and (test_save_motions_with_joint_params or test_save_motions_with_model_params))'", env = { MOMENTUM_MODELS_PATH = "momentum/" }, depends-on = [
+#     "build_py", "install",
+# ] }
+# doc_py = { cmd = "sphinx-build -a -E -W -b html pymomentum/doc build/python_api_doc", depends-on = [
+#     "build_py",
+# ] }
+# open_doc_py = { cmd = "open build/python_api_doc/index.html", depends-on = [
+#     "doc_py",
+# ] }
+
+#============
+# osx-arm64
+#============
+# Commented out - only building for linux-64
+
+# [target.osx-arm64.dependencies]
+
+# [target.osx-arm64.tasks]
+# build_py = { cmd = "pip install . -v", env = { CMAKE_ARGS = """
+#     -DMOMENTUM_ENABLE_FBX_SAVING=$MOMENTUM_ENABLE_FBX_SAVING \
+#     -DMOMENTUM_ENABLE_SIMD=$MOMENTUM_ENABLE_SIMD \
+#     -DMOMENTUM_USE_SYSTEM_GOOGLETEST=ON \
+#     -DMOMENTUM_USE_SYSTEM_PYBIND11=ON \
+#     -DMOMENTUM_USE_SYSTEM_RERUN_CPP_SDK=ON \
+#     -DBUILD_SHARED_LIBS=OFF
+# """, MOMENTUM_ENABLE_FBX_SAVING = "OFF", MOMENTUM_ENABLE_SIMD = "ON" } }
+# # TODO: Remove -k option, once saving tests are disabled programmatically when Autodesk FBX SDK is unavailable (FBX loading always works via OpenFBX)
+# test_py = { cmd = "pytest pymomentum/test/*.py -k 'not (TestFBXIO and (test_save_motions_with_joint_params or test_save_motions_with_model_params))'", env = { MOMENTUM_MODELS_PATH = "momentum/" }, depends-on = [
+#     "build_py", "install",
+# ] }
+# doc_py = { cmd = "sphinx-build -a -E -W -b html pymomentum/doc build/python_api_doc", depends-on = [
+#     "build_py",
+# ] }
+# open_doc_py = { cmd = "open build/python_api_doc/index.html", depends-on = [
+#     "doc_py",
+# ] }
+
+#=========
+# win-64
+#=========
+# Commented out - only building for linux-64
+
+# [target.win-64.dependencies]
+# delvewheel = ">=1.8.7,<2"
+
+# [target.win-64.tasks]
+# config = { cmd = """
+#     cmake \
+#         -S . \
+#         -B build/$PIXI_ENVIRONMENT_NAME/cpp \
+#         -G 'Visual Studio 17 2022' \
+#         -DCMAKE_INSTALL_PREFIX=$CONDA_PREFIX \
+#         -DBUILD_SHARED_LIBS=ON \
+#         -DMOMENTUM_BUILD_EXAMPLES=ON \
+#         -DMOMENTUM_ENABLE_FBX_SAVING=$MOMENTUM_ENABLE_FBX_SAVING \
+#         -DMOMENTUM_BUILD_PYMOMENTUM=$MOMENTUM_BUILD_PYMOMENTUM \
+#         -DMOMENTUM_BUILD_TESTING=ON \
+#         -DMOMENTUM_ENABLE_PROFILING=ON \
+#         -DMOMENTUM_ENABLE_SIMD=%MOMENTUM_ENABLE_SIMD% \
+#         -DMOMENTUM_INSTALL_EXAMPLES=ON \
+#         -DMOMENTUM_USE_SYSTEM_GOOGLETEST=ON \
+#         -DMOMENTUM_USE_SYSTEM_PYBIND11=ON \
+#         -DMOMENTUM_USE_SYSTEM_RERUN_CPP_SDK=ON \
+#         -DMOMENTUM_USE_SYSTEM_TRACY=ON
+#     """, env = { MOMENTUM_ENABLE_FBX_SAVING = "OFF", MOMENTUM_BUILD_PYMOMENTUM = "OFF", MOMENTUM_ENABLE_SIMD = "ON" } }
+# open_vs = { cmd = "cmd /c start build\\$PIXI_ENVIRONMENT_NAME\\cpp\\momentum.sln", depends-on = [
+#     "config",
+# ] }
+# build = { cmd = "cmake --build build/$PIXI_ENVIRONMENT_NAME/cpp --config Release --parallel", depends-on = [
+#     "config",
+# ] }
+# build_dev = { cmd = "cmake --build build/$PIXI_ENVIRONMENT_NAME/cpp --config Debug --parallel", depends-on = [
+#     "config",
+# ] }
+# test = { cmd = "cmd /c \"set PATH=build\\$PIXI_ENVIRONMENT_NAME\\cpp\\Release;%PATH% & ctest --test-dir build/$PIXI_ENVIRONMENT_NAME/cpp --output-on-failure --build-config Release\"", depends-on = [
+#     "build",
+# ] }
+# test_dev = { cmd = "cmd /c \"set PATH=build\\$PIXI_ENVIRONMENT_NAME\\cpp\\Debug;%PATH% & ctest --test-dir build/$PIXI_ENVIRONMENT_NAME/cpp --output-on-failure --build-config Debug\"", depends-on = [
+#     "build_dev",
+# ] }
+# hello_world = { cmd = "build/$PIXI_ENVIRONMENT_NAME/cpp/Release/hello_world.exe", depends-on = [
+#     "build",
+# ] }
+# convert_model = { cmd = "build/$PIXI_ENVIRONMENT_NAME/cpp/Release/convert_model.exe", depends-on = [
+#     "build",
+# ] }
+# c3d_viewer = { cmd = "build/$PIXI_ENVIRONMENT_NAME/cpp/Release/c3d_viewer.exe", depends-on = [
+#     "build",
+# ] }
+# fbx_viewer = { cmd = "build/$PIXI_ENVIRONMENT_NAME/cpp/Release/fbx_viewer.exe", depends-on = [
+#     "build",
+# ] }
+# glb_viewer = { cmd = "build/$PIXI_ENVIRONMENT_NAME/cpp/Release/glb_viewer.exe", depends-on = [
+#     "build",
+# ] }
+# urdf_viewer = { cmd = "build/$PIXI_ENVIRONMENT_NAME/cpp/Release/urdf_viewer.exe", depends-on = [
+#     "build",
+# ] }
+# process_markers = { cmd = "build/$PIXI_ENVIRONMENT_NAME/cpp/Release/process_markers_app.exe", depends-on = [
+#     "build",
+# ] }
+# refine_motion = { cmd = "build/$PIXI_ENVIRONMENT_NAME/cpp/Release/refine_motion.exe", depends-on = [
+#     "build",
+# ] }
+# export_objs = { cmd = "build/$PIXI_ENVIRONMENT_NAME/cpp/Release/export_objs.exe", depends-on = [
+#     "build",
+# ] }
+# animate_shapes = { cmd = "build/$PIXI_ENVIRONMENT_NAME/cpp/Release/animate_shapes.exe", depends-on = [
+#     "build",
+# ] }
+# install = { cmd = "cmake --build build/$PIXI_ENVIRONMENT_NAME/cpp --target install --config Release --parallel", depends-on = [
+#     "build",
+# ] }
+# tracy = { cmd = "tracy-profiler.exe" }
+# build_py = { cmd = "pip install . -v", env = { CMAKE_ARGS = """
+#     -DMOMENTUM_ENABLE_FBX_SAVING=$MOMENTUM_ENABLE_FBX_SAVING \
+#     -DMOMENTUM_ENABLE_SIMD=$MOMENTUM_ENABLE_SIMD \
+#     -DMOMENTUM_USE_SYSTEM_GOOGLETEST=ON \
+#     -DMOMENTUM_USE_SYSTEM_PYBIND11=OFF \
+#     -DMOMENTUM_USE_SYSTEM_RERUN_CPP_SDK=ON \
+#     -DBUILD_SHARED_LIBS=OFF
+# """, MOMENTUM_ENABLE_FBX_SAVING = "OFF", MOMENTUM_ENABLE_SIMD = "ON", TORCH_CUDA_ARCH_LIST = "5.0;6.0;6.1;7.0;7.5;8.0;8.6;8.9;9.0+PTX" } }
+# # TODO: Remove -k option, once saving tests are disabled programmatically when Autodesk FBX SDK is unavailable (FBX loading always works via OpenFBX)
+# # TODO: Remove test_lighting skip once stack overflow issue on Windows is resolved (currently causes crash with CMake build)
+# test_py = { cmd = "pytest pymomentum/test/*.py -k 'not ((TestFBXIO and (test_save_motions_with_joint_params or test_save_motions_with_model_params)) or test_lighting)'", env = { MOMENTUM_MODELS_PATH = "momentum/" }, depends-on = [
+#     "build_py", "install",
+# ] }
+
+
+#==============
+# Feature: CPU
+#==============
+
+[feature.py312]
+dependencies = { python = "3.12.*" }
+
+[feature.py313]
+dependencies = { python = "3.13.*" }
+
+#==============
+# Feature: GPU
+#==============
+
+[feature.py312-cuda129]
+platforms = ["linux-64", "win-64"]
+system-requirements = { cuda = "12" }
+dependencies = { cuda-toolkit = ">=12.9.0,<13", nvtx-c = ">=3.1.1", cuda-version = "12.9.*", python = "3.12.*", pytorch-gpu = ">=2.8.0,<3" }
+
+[feature.py312-cuda129.tasks]
+# GPU-specific PyPI tasks - build GPU wheels using cibuildwheel in manylinux_2_28 container
+wheel_build = { cmd = "python scripts/generate_pyproject.py && (rm -rf build/cp* 2>/dev/null || true) && cp pyproject.toml .tmp-pyproject-backup.toml && cp pyproject-pypi-gpu.toml pyproject.toml && CIBW_CONTAINER_ENGINE=podman CIBW_BUILD=\"cp312-manylinux_x86_64\" cibuildwheel --platform linux --output-dir dist . ; mv .tmp-pyproject-backup.toml pyproject.toml && echo 'Wheels created:' && ls -la dist/", description = "Build GPU wheel using cibuildwheel in manylinux_2_28 container with CUDA" }
+
+wheel_repair = { cmd = "echo 'wheel_repair: cibuildwheel already handled repair in wheel_build'", description = "Repair handled by cibuildwheel (no-op)" }
+
+wheel_publish = { cmd = "twine upload --repository pymomentum-gpu dist/pymomentum_gpu-*.whl", depends-on = [
+    "wheel_check",
+    "wheel_test",
+], description = "Publish GPU wheels to PyPI" }
+
+[feature.py313-cuda129]
+platforms = ["linux-64", "win-64"]
+system-requirements = { cuda = "12" }
+dependencies = { cuda-toolkit = ">=12.9.0,<13", nvtx-c = ">=3.1.1", cuda-version = "12.9.*", python = "3.13.*", pytorch-gpu = ">=2.8.0,<3" }
+
+[feature.py313-cuda129.tasks]
+# GPU-specific PyPI tasks - build GPU wheels using cibuildwheel in manylinux_2_28 container
+wheel_build = { cmd = "python scripts/generate_pyproject.py && (rm -rf build/cp* 2>/dev/null || true) && cp pyproject.toml .tmp-pyproject-backup.toml && cp pyproject-pypi-gpu.toml pyproject.toml && CIBW_CONTAINER_ENGINE=podman CIBW_BUILD=\"cp313-manylinux_x86_64\" cibuildwheel --platform linux --output-dir dist . ; mv .tmp-pyproject-backup.toml pyproject.toml && echo 'Wheels created:' && ls -la dist/", description = "Build GPU wheel using cibuildwheel in manylinux_2_28 container with CUDA" }
+
+wheel_repair = { cmd = "echo 'wheel_repair: cibuildwheel already handled repair in wheel_build'", description = "Repair handled by cibuildwheel (no-op)" }
+
+wheel_publish = { cmd = "twine upload --repository pymomentum-gpu dist/pymomentum_gpu-*.whl", depends-on = [
+    "wheel_check",
+    "wheel_test",
+], description = "Publish GPU wheels to PyPI" }
+
+#==============
+# Environments
+#==============
+
+[environments]
+# CPU environments (default - no feature needed since pytorch-cpu is in global dependencies)
+py312 = ["py312"]
+py313 = ["py313"]
+
+# GPU environments
+py312-cuda129 = ["py312-cuda129"]
+py313-cuda129 = ["py313-cuda129"]
+gpu = ["py312-cuda129"]
+
+# Default environment
+default = ["py312"]

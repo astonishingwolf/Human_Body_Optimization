@@ -1,0 +1,108 @@
+name: CI Ubuntu
+
+on:
+  push:
+    branches:
+      - "**"
+    paths-ignore:
+      - "**/website/**"
+  pull_request:
+    branches:
+      - "**"
+    paths-ignore:
+      - "**/website/**"
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  momentum:
+    name: cpp${{ matrix.simd == 'ON' && '-simd' || '' }}-${{ matrix.mode == '' && 'opt' || 'dev' }}-ubuntu
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        simd: ["ON"]  # Only test SIMD=ON (production config) to reduce CI cost
+        mode: [""]
+    env:
+      MOMENTUM_ENABLE_SIMD: ${{ matrix.simd }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up pixi
+        uses: prefix-dev/setup-pixi@v0.9.3
+        with:
+          cache: true
+
+      - name: Check code formatting
+        run: |
+          pixi run lint-check
+
+      - name: Build and test Momentum
+        run: |
+          MOMENTUM_BUILD_PYMOMENTUM=$MOMENTUM_BUILD_PYMOMENTUM \
+            MOMENTUM_ENABLE_SIMD=$MOMENTUM_ENABLE_SIMD \
+            pixi run test${{ matrix.mode }}
+
+      - name: Install Momentum and Build hello_world
+        run: |
+          MOMENTUM_BUILD_PYMOMENTUM=$MOMENTUM_BUILD_PYMOMENTUM \
+            MOMENTUM_ENABLE_SIMD=$MOMENTUM_ENABLE_SIMD \
+            pixi run install
+          pixi run cmake \
+            -S momentum/examples/hello_world \
+            -B momentum/examples/hello_world/build \
+            -DCMAKE_BUILD_TYPE=Release
+          pixi run cmake --build momentum/examples/hello_world/build
+
+  pymomentum:
+    if: false # Temporarily disabled to reduce CI cost
+    name: py-${{ matrix.pixi_env }}-ubuntu
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - pixi_env: "py312"
+          - pixi_env: "py312-cuda129"
+            cuda_version: "12.9.0"
+    env:
+      FULL_CUDA_VERSION: ${{ matrix.cuda_version }}
+    steps:
+      - name: Maximize build space
+        if: ${{ contains(matrix.pixi_env, 'cuda') || contains(matrix.pixi_env, 'gpu') }}
+        uses: easimon/maximize-build-space@master
+        with:
+          root-reserve-mb: 32768
+          remove-dotnet: true
+          remove-android: true
+          remove-haskell: true
+          remove-codeql: true
+          remove-docker-images: true
+
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup CUDA
+        if: ${{ contains(matrix.pixi_env, 'cuda') || contains(matrix.pixi_env, 'gpu') }}
+        uses: ./.github/actions/setup-cuda
+        with:
+          cuda-version: ${{ matrix.cuda_version }}
+
+      - name: Set up pixi
+        uses: prefix-dev/setup-pixi@v0.9.3
+        with:
+          environments: ${{ matrix.pixi_env }}
+          cache: true
+
+      - name: Build and test PyMomentum
+        run: |
+          pixi run -e ${{ matrix.pixi_env }} test_py
+
+      - name: Build Python API Doc
+        run: |
+          MOMENTUM_BUILD_WITH_FBXSDK=ON \
+            pixi run -e ${{ matrix.pixi_env }} doc_py

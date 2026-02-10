@@ -1,0 +1,157 @@
+[[fwd]]
+subdirectory = "common"
+classes = [
+    "ProgressBar"
+]
+
+[[fwd]]
+subdirectory = "math"
+template_structs = [
+    "Mesh",
+    "Mppca",
+    "Transform"
+]
+template_classes = [
+    "LowRankCovarianceMatrix",
+    "GeneralizedLoss",
+    "SimdGeneralizedLoss"
+]
+
+[[fwd]]
+subdirectory = "character"
+structs = [
+    "BlendShape",
+    "BlendShapeBase",
+    "Locator",
+    "PoseShape",
+    "SkinWeights",
+    "SkinnedLocator"
+]
+template_structs = [
+    "Character",
+    "CharacterState",
+    "CollisionGeometryState",
+    "Joint",
+    "JointState",
+    "ParameterTransform",
+    "Skeleton",
+    "SkeletonState",
+    "MeshState",
+    "TaperedCapsule"
+]
+
+[[fwd]]
+subdirectory = "character_solver"
+structs = [
+    "ConstraintData",
+    "GaussNewtonSolverQROptions",
+    "SimdNormalConstraints",
+    "SimdPlaneConstraints",
+    "SimdPositionConstraints",
+]
+template_structs = [
+    "AimData",
+    "FixedAxisData",
+    "NormalData",
+    "OrientationData",
+    "PointTriangleVertexConstraint",
+    "PlaneData",
+    "PositionData",
+    "SkinnedLocatorConstraint",
+    "SkinnedLocatorTriangleConstraint",
+    "VertexConstraint",
+    "VertexProjectionConstraint",
+]
+classes = [
+    "SimdNormalErrorFunction",
+    "SimdPlaneErrorFunction",
+    "SimdPositionErrorFunction",
+    "SimdNormalErrorFunctionAVX",
+    "SimdPlaneErrorFunctionAVX",
+    "SimdPositionErrorFunctionAVX",
+]
+template_classes = [
+    "AimDirErrorFunction",
+    "AimDistErrorFunction",
+    "CollisionErrorFunction",
+    "CollisionErrorFunctionStateless",
+    "DistanceErrorFunction",
+    "FixedAxisAngleErrorFunction",
+    "FixedAxisCosErrorFunction",
+    "FixedAxisDiffErrorFunction",
+    "GaussNewtonSolverQR",
+    "HeightErrorFunction",
+    "LimitErrorFunction",
+    "ModelParametersErrorFunction",
+    "NormalErrorFunction",
+    "OrientationErrorFunction",
+    "PlaneErrorFunction",
+    "PointTriangleVertexErrorFunction",
+    "PosePriorErrorFunction",
+    "PoseTransformSolver",
+    "PositionErrorFunction",
+    "ProjectionErrorFunction",
+    "SimdCollisionErrorFunction",
+    "SkeletonErrorFunction",
+    "SkeletonSolverFunction",
+    "SkinnedLocatorErrorFunction",
+    "SkinnedLocatorTriangleErrorFunction",
+    "StateErrorFunction",
+    "TrustRegionQR",
+    "VertexErrorFunction",
+    "VertexProjectionErrorFunction",
+    "VertexVertexDistanceErrorFunction",
+]
+
+[[fwd]]
+subdirectory = "character_sequence_solver"
+structs = [
+    "MultiposeSolverOptions",
+    "SequenceSolverOptions",
+]
+template_classes = [
+    "AccelerationSequenceErrorFunction",
+    "SequenceErrorFunction",
+    "ModelParametersSequenceErrorFunction",
+    "MultiposeSolver",
+    "MultiposeSolverFunction",
+    "SequenceSolver",
+    "SequenceSolverFunction",
+    "StateSequenceErrorFunction",
+    "VertexSequenceErrorFunction",
+]
+
+[[fwd]]
+subdirectory = "solver"
+structs = [
+    "SolverOptions",
+    "GaussNewtonSolverOptions",
+]
+template_classes = [
+    "Solver",
+    "SolverFunction",
+    "GaussNewtonSolver",
+    "GradientDescentSolver",
+    "SubsetGaussNewtonSolver",
+]
+
+[[fwd]]
+subdirectory = "diff_ik"
+template_structs = [
+    "ErrorFunctionDerivatives",
+    "OrientationConstraint",
+    "OrientationConstraintState",
+    "PositionConstraint",
+    "PositionConstraintState",
+]
+template_classes = [
+    "FullyDifferentiableDistanceErrorFunction",
+    "FullyDifferentiableMotionErrorFunction",
+    "FullyDifferentiableOrientationErrorFunction",
+    "FullyDifferentiablePosePriorErrorFunction",
+    "FullyDifferentiablePositionErrorFunction",
+    "FullyDifferentiableProjectionErrorFunction",
+    "FullyDifferentiableSkeletonErrorFunction",
+    "FullyDifferentiableStateErrorFunction",
+    "UnionErrorFunction",
+]
