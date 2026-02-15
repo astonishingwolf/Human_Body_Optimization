@@ -3,6 +3,10 @@
 from pathlib import Path
 
 import torch
+import matplotlib
+
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
 
 from lib.sam_3d_body.models.modules.parameter_optimizer import DifferentiableMHRParameters
 from lib.sam_3d_body.utils.optimize_mhr_params import create_optimizer_for_params
@@ -38,6 +42,71 @@ def _save_obj(vertices: torch.Tensor, faces: torch.Tensor, file_path: Path) -> N
             f.write(
                 f"f {tri[0].item() + 1} {tri[1].item() + 1} {tri[2].item() + 1}\n"
             )
+
+
+def _save_mesh_views_png(
+    target_vertices: torch.Tensor,
+    initial_vertices: torch.Tensor,
+    final_vertices: torch.Tensor,
+    faces: torch.Tensor,
+    file_path: Path,
+) -> None:
+    verts_target = target_vertices.detach().cpu()[0]
+    verts_initial = initial_vertices.detach().cpu()[0]
+    verts_final = final_vertices.detach().cpu()[0]
+    tris = faces.detach().cpu().long()
+    if tris.ndim == 3:
+        tris = tris[0]
+
+    all_verts = torch.cat([verts_target, verts_initial, verts_final], dim=0)
+    mins = all_verts.min(dim=0).values
+    maxs = all_verts.max(dim=0).values
+    center = (mins + maxs) / 2.0
+    radius = ((maxs - mins).max() / 2.0).item()
+    if radius <= 0:
+        radius = 1.0
+
+    mesh_data = [
+        ("Target (Zero Pose)", verts_target),
+        ("Initial (Angular Offset)", verts_initial),
+        ("Final (Optimized)", verts_final),
+    ]
+
+    views = [
+        ("Front", 15, -70),
+        ("Side", 15, 20),
+        ("Top", 90, -90),
+    ]
+
+    fig = plt.figure(figsize=(18, 16))
+    for row_idx, (mesh_title, verts) in enumerate(mesh_data):
+        for col_idx, (view_name, elev, azim) in enumerate(views):
+            ax = fig.add_subplot(3, 3, row_idx * 3 + col_idx + 1, projection="3d")
+            ax.plot_trisurf(
+                verts[:, 0].numpy(),
+                verts[:, 1].numpy(),
+                verts[:, 2].numpy(),
+                triangles=tris.numpy(),
+                color="#88c0d0",
+                edgecolor="none",
+                linewidth=0.0,
+                antialiased=False,
+                shade=True,
+                alpha=1.0,
+            )
+            ax.set_title(f"{mesh_title} | {view_name}", fontsize=10)
+            ax.set_xlim(center[0].item() - radius, center[0].item() + radius)
+            ax.set_ylim(center[1].item() - radius, center[1].item() + radius)
+            ax.set_zlim(center[2].item() - radius, center[2].item() + radius)
+            ax.set_xticks([])
+            ax.set_yticks([])
+            ax.set_zticks([])
+            ax.set_box_aspect((1, 1, 1))
+            ax.view_init(elev=elev, azim=azim)
+
+    fig.tight_layout()
+    fig.savefig(file_path, dpi=220, bbox_inches="tight")
+    plt.close(fig)
 
 
 def chamfer_distance(x: torch.Tensor, y: torch.Tensor) -> tuple[torch.Tensor, None]:
@@ -88,6 +157,10 @@ def create_mesh_with_zero_parameters(
         learnable_offsets=False,
     )
     with torch.no_grad():
+        params_zero.pose_params.zero_()
+        params_zero.shape_params.zero_()
+        params_zero.scale_params.zero_()
+    with torch.no_grad():
         vertices, _ = params_zero.forward_mhr(mhr_model, character_torch)
     return vertices, params_zero
 
@@ -97,6 +170,7 @@ def create_mesh_with_random_parameters(
     character_torch: Character,
     device: torch.device,
     seed: int = 42,
+    pose_displacement_std: float = 0.12,
 ) -> tuple[torch.Tensor, DifferentiableMHRParameters]:
     torch.manual_seed(seed)
     params_random = DifferentiableMHRParameters(
@@ -106,10 +180,13 @@ def create_mesh_with_random_parameters(
         learnable_offsets=True,
     )
     with torch.no_grad():
-        params_random.pose_params.copy_(torch.randn_like(params_random.pose_params) * 0.35)
-        params_random.shape_params.copy_(torch.randn_like(params_random.shape_params) * 1.5)
-        params_random.scale_params.copy_(torch.randn_like(params_random.scale_params) * 0.15)
-        params_random.joint_offsets.add_(torch.randn_like(params_random.joint_offsets) * 0.03)
+        # Start from zero-pose/zero-shape/zero-scale, then add angular displacement only.
+        params_random.pose_params.zero_()
+        params_random.shape_params.zero_()
+        params_random.scale_params.zero_()
+        params_random.pose_params.add_(
+            torch.randn_like(params_random.pose_params) * pose_displacement_std
+        )
 
     with torch.no_grad():
         vertices, _ = params_random.forward_mhr(mhr_model, character_torch)
@@ -193,6 +270,13 @@ def main_example() -> DifferentiableMHRParameters:
     _save_obj(final_vertices, faces, output_dir / "final_mesh.obj")
     torch.save(target_vertices.detach().cpu(), output_dir / "target_vertices.pt")
     _save_obj(target_vertices, faces, output_dir / "target_mesh.obj")
+    _save_mesh_views_png(
+        target_vertices=target_vertices,
+        initial_vertices=initial_vertices,
+        final_vertices=final_vertices,
+        faces=faces,
+        file_path=output_dir / "mesh_comparison.png",
+    )
 
     print(f"initial_chamfer={initial_chamfer.item():.6f}")
     print(f"final_chamfer={final_chamfer.item():.6f}")

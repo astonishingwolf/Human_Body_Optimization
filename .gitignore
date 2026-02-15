@@ -9,7 +9,10 @@ thirdparty/momentum/build.log
 thirdparty/momentum/pyproject.toml.bak
 thirdparty/momentum/pixi_bin
 thirdparty/momentum/pyproject.toml
-
+outputs/
+lib/sam_3d_body/checkpoints/
+lib/sam_3d_body/checkpoints/
+.conda_envs/
 *png
 *obj
 *ply

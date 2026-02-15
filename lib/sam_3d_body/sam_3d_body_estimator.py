@@ -201,6 +201,9 @@ class SAM3DBodyEstimator:
                     "pred_keypoints_2d": out["pred_keypoints_2d"][idx],
                     "pred_vertices": out["pred_vertices"][idx],
                     "pred_cam_t": out["pred_cam_t"][idx],
+                    # cam_int is shared per image in this inference path: [1, 3, 3]
+                    "cam_int": batch["cam_int"][0].cpu().numpy(),
+                    "mhr_model_params": out["mhr_model_params"][idx],
                     "pred_pose_raw": out["pred_pose_raw"][idx],
                     "global_rot": out["global_rot"][idx],
                     "body_pose_params": out["body_pose"][idx],

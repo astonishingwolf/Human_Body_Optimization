@@ -14,6 +14,22 @@ if(NOT DEFINED ENV{CONDA_PREFIX})
   )
 endif()
 
+# Enforce Conda/Pixi prefix isolation to avoid cross-environment contamination.
+# This prevents CMake from pulling packages from a different env (e.g. envs/sam).
+set(_momentum_conda_prefix "$ENV{CONDA_PREFIX}")
+set(CMAKE_PREFIX_PATH "${_momentum_conda_prefix}")
+set(CMAKE_IGNORE_PREFIX_PATH "/home/soham/miniconda3/envs/sam")
+set(CMAKE_FIND_USE_SYSTEM_ENVIRONMENT_PATH FALSE)
+set(CMAKE_FIND_USE_CMAKE_SYSTEM_PATH FALSE)
+set(CMAKE_FIND_USE_INSTALL_PREFIX FALSE)
+set(CMAKE_FIND_ROOT_PATH "${_momentum_conda_prefix}")
+set(CMAKE_FIND_ROOT_PATH_MODE_PACKAGE ONLY)
+set(CMAKE_FIND_ROOT_PATH_MODE_LIBRARY ONLY)
+set(CMAKE_FIND_ROOT_PATH_MODE_INCLUDE ONLY)
+
+# Prefer config packages from the active conda prefix first.
+list(PREPEND CMAKE_MODULE_PATH "${_momentum_conda_prefix}/share/cmake")
+
 # Determine torch base path based on build environment and platform
 # Use CONDA_PREFIX for Unix conda-build, use site-packages for PyPI or Windows
 if(DEFINED ENV{CONDA_BUILD} AND NOT WIN32)
@@ -28,6 +44,15 @@ if(NOT EXISTS "${libtorch_base_path}")
   message(FATAL_ERROR
     "PyTorch not found in the expected location: ${libtorch_base_path}.\n"
     "Please ensure PyTorch is installed in your Conda/Pixi environment."
+  )
+endif()
+
+if(NOT "${libtorch_base_path}" MATCHES "^${_momentum_conda_prefix}(/|$)")
+  message(FATAL_ERROR
+    "Resolved PyTorch path is outside active CONDA_PREFIX.\n"
+    "CONDA_PREFIX=${_momentum_conda_prefix}\n"
+    "libtorch_base_path=${libtorch_base_path}\n"
+    "Please activate the correct env and retry."
   )
 endif()
 
@@ -58,6 +83,27 @@ find_package(Torch CONFIG REQUIRED HINTS
   ${libtorch_base_path}/share/cmake/Torch
   ${libtorch_base_path}
 )
+
+if(DEFINED Torch_DIR AND NOT "${Torch_DIR}" MATCHES "^${_momentum_conda_prefix}(/|$)")
+  message(FATAL_ERROR
+    "Torch_DIR resolved outside CONDA_PREFIX.\n"
+    "CONDA_PREFIX=${_momentum_conda_prefix}\n"
+    "Torch_DIR=${Torch_DIR}"
+  )
+endif()
+
+if(DEFINED TORCH_INCLUDE_DIRS)
+  foreach(_torch_inc ${TORCH_INCLUDE_DIRS})
+    if(NOT "${_torch_inc}" MATCHES "^${_momentum_conda_prefix}(/|$)")
+      message(FATAL_ERROR
+        "TORCH_INCLUDE_DIRS contains path outside CONDA_PREFIX.\n"
+        "Bad include: ${_torch_inc}\n"
+        "CONDA_PREFIX=${_momentum_conda_prefix}"
+      )
+    endif()
+  endforeach()
+endif()
+
 find_library(torch_python
   NAMES torch_python
   HINTS ${libtorch_base_path}/lib/
