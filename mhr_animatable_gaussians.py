@@ -472,6 +472,8 @@ class MHRAnimatableGaussians:
         self.model_params = None
         self.expr_params = None
         self.apply_pose_correctives = True
+        self._joint_params_mode = False
+        self._stored_joint_params = None
 
         rest_pose = self._compute_rest_pose(
             torch.zeros(1, self.num_identity_blendshapes, device=device)
@@ -584,6 +586,50 @@ class MHRAnimatableGaussians:
         self.model_params = model_params.to(self.device).float()
         self.expr_params = expr_params.to(self.device).float()
         self.apply_pose_correctives = apply_pose_correctives
+        self._joint_params_mode = False
+
+    def set_animate_params_joint_params(
+        self,
+        shape_params: torch.Tensor,
+        joint_params: torch.Tensor,
+        expr_params: Optional[torch.Tensor] = None,
+        apply_pose_correctives: bool = True,
+    ):
+        """
+        Store animation parameters given pre-computed joint parameters directly,
+        bypassing the model_params -> joint_params parameter transform.
+
+        Use this when optimizing with DifferentiableMHRParameters, which stores
+        per-joint translations/rotations/scales directly in joint-parameter space.
+
+        Args:
+            shape_params: [B, 45]
+            joint_params: [B, J*7] — already in joint-parameter space (trans, rot, scale per joint)
+            expr_params: [B, N, 72] or [B, 72] or None (defaults to zeros)
+        """
+        B = shape_params.shape[0]
+        if expr_params is None:
+            expr_params = torch.zeros(B, 1, self.num_expr_blendshapes, device=self.device)
+        elif expr_params.ndim == 2:
+            expr_params = expr_params[:, None, :]
+
+        expected_expr = self.num_expr_blendshapes
+        if expected_expr == 0:
+            expr_params = expr_params[..., :0]
+        elif expr_params.shape[-1] != expected_expr:
+            if expr_params.shape[-1] > expected_expr:
+                expr_params = expr_params[..., :expected_expr]
+            else:
+                pad = expected_expr - expr_params.shape[-1]
+                expr_params = F.pad(expr_params, (0, pad))
+
+        self.shape_params = shape_params.to(self.device).float()
+        # Store as [B, 1, J*7] so pose_indices slicing works like model_params
+        self._stored_joint_params = joint_params[:, None, :].to(self.device).float()
+        self.model_params = None
+        self.expr_params = expr_params.to(self.device).float()
+        self.apply_pose_correctives = apply_pose_correctives
+        self._joint_params_mode = True
 
     def _get_blendshape_counts(self) -> tuple[int, int]:
         """Infer identity/expression blendshape counts, guarding torchscript models."""
@@ -649,9 +695,23 @@ class MHRAnimatableGaussians:
         Returns:
             GaussianParameters with shapes [B, N, L, ...]
         """
-        if pose_indices is None:
-            pose_indices = list(range(self.model_params.shape[1]))
-        shape, model, expr, B, N = self._prepare_pose(pose_indices)
+        if self._joint_params_mode:
+            if pose_indices is None:
+                pose_indices = list(range(self._stored_joint_params.shape[1]))
+            B = self.shape_params.shape[0]
+            N = len(pose_indices)
+            shape = self.shape_params[:, None, :].expand(B, N, -1).reshape(B * N, -1)
+            joint_params = self._stored_joint_params[:, pose_indices].reshape(B * N, -1)
+            skel_state = self._compute_skeleton_state(joint_params)
+            rest_pose = self._compute_rest_pose(shape)
+            rest_pose = self._apply_pose_correctives(joint_params, rest_pose)
+            joint_mats = _trs_to_matrix(skel_state, to_meters=True)
+            per_vertex_tf = self._blend_transforms(joint_mats)
+        else:
+            if pose_indices is None:
+                pose_indices = list(range(self.model_params.shape[1]))
+            shape, model, expr, B, N = self._prepare_pose(pose_indices)
+            rest_pose, per_vertex_tf, _ = self._compute_pose_transforms(shape, model, expr)
 
         # Validate anchors
         offset_xyz = tpose_gs_dic["offset_xyz"]
@@ -664,7 +724,6 @@ class MHRAnimatableGaussians:
         if L != self.num_verts:
             raise ValueError(f"L={L} must equal number of verts {self.num_verts}")
 
-        rest_pose, per_vertex_tf, _ = self._compute_pose_transforms(shape, model, expr)
         per_vertex_tf = rearrange(per_vertex_tf, "(b n) ... -> b n ...", b=B, n=N)
         rest_pose = rearrange(rest_pose, "(b n) v c -> b n v c", b=B, n=N)
 

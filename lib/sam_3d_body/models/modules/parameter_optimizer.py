@@ -138,17 +138,10 @@ class DifferentiableMHRParameters(nn.Module):
         """
         batch_size = self.pose_params.shape[0]
         device = self.pose_params.device
-
-        # Get shape coefficients (identity blendshapes)
         shape_coeffs = self.get_shape_coefficients()
-
-        # Get joint parameters from independent parameters
         joint_params = self.get_joint_parameters()
-
-        # Convert joint parameters to skeleton state (global)
         skel_state = character_torch.joint_parameters_to_skeleton_state(joint_params)
 
-        # Get expression parameters
         if expr_params is None:
             expr_params = torch.zeros(
                 batch_size,
@@ -156,13 +149,9 @@ class DifferentiableMHRParameters(nn.Module):
                 device=device,
             )
 
-        # Combine identity and expression blendshapes
         coeffs = torch.cat([shape_coeffs, expr_params], dim=1)
-
-        # Compute rest pose vertices from blendshapes
         rest_pose = character_torch.blend_shape.forward(coeffs)
 
-        # Apply pose correctives if available (non-linear pose-dependent deformations)
         if (
             hasattr(mhr_model, "pose_correctives_model")
             and mhr_model.pose_correctives_model is not None
@@ -171,8 +160,6 @@ class DifferentiableMHRParameters(nn.Module):
                 joint_parameters=joint_params
             )
             rest_pose = rest_pose + pose_correctives
-
-        # Apply linear blend skinning
         vertices = character_torch.skin_points(
             skel_state=skel_state, rest_vertex_positions=rest_pose
         )

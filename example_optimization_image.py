@@ -1,4 +1,7 @@
-"""Image-driven optimization example: SAM-3D init -> MHR gaussians -> mask optimization."""
+"""Image-driven optimization example: SAM-3D init -> MHR gaussians -> mask optimization.
+Uses DifferentiableMHRParameters for joint offsets ([J, 3] per-joint translation),
+same as example_optimization.py. Requires MHR from pymomentum (do not pass --mhr-model-path .pt).
+"""
 
 from __future__ import annotations
 
@@ -13,6 +16,8 @@ from PIL import Image
 from gaussian_splatting import set_gaussian_type, splat_gaussians
 from camera import GSCamera, intrinsics_to_fov
 from lib.sam_3d_body import SAM3DBodyEstimator, load_sam_3d_body
+from lib.sam_3d_body.models.modules.parameter_optimizer import DifferentiableMHRParameters
+from lib.sam_3d_body.utils.optimize_mhr_params import create_optimizer_for_params
 from mhr_animatable_gaussians import MHRAnimatableGaussians
 from ops import image2torch
 
@@ -189,29 +194,6 @@ def _print_param_block(
     print(f"  scale: {_tensor_stats(scale_t)}")
 
 
-def _split_model_params(model_params: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-    """
-    Split MHR model params [.., 204] -> pose_wo_joint [.., 127], joint_offsets [.., 6], scale [.., 71].
-    Joint-offset slots follow mhr_utils all_param_1dof_trans_idxs = [124..129] in the 133-dim pose block.
-    """
-    if model_params.shape[-1] != 204:
-        raise ValueError(f"Expected model_params last dim=204, got {model_params.shape}")
-    pose = model_params[..., :133]
-    scale = model_params[..., 133:]
-    joint_offsets = pose[..., 124:130]
-    pose_wo_joint = torch.cat([pose[..., :124], pose[..., 130:]], dim=-1)
-    return pose_wo_joint, joint_offsets, scale
-
-
-def _compose_model_params(
-    pose_wo_joint: torch.Tensor,
-    joint_offsets: torch.Tensor,
-    scale: torch.Tensor,
-) -> torch.Tensor:
-    pose = torch.cat([pose_wo_joint[..., :124], joint_offsets, pose_wo_joint[..., 124:]], dim=-1)
-    return torch.cat([pose, scale], dim=-1)
-
-
 def _prepare_gaussians_for_render(gaussians):
     """
     Convert gaussian tensor shapes to renderer-compatible format.
@@ -276,33 +258,56 @@ def run(args: argparse.Namespace) -> None:
     init_model = torch.from_numpy(np.asarray(sam_out["mhr_model_params"])).to(device=device, dtype=torch.float32).unsqueeze(0).unsqueeze(1)
     init_expr = torch.from_numpy(np.asarray(sam_out["expr_params"])).to(device=device, dtype=torch.float32).unsqueeze(0).unsqueeze(1)
     init_cam_t = torch.from_numpy(np.asarray(sam_out["pred_cam_t"])).to(device=device, dtype=torch.float32).view(1, 3)
-    init_pose_wo_joint, init_joint_offsets, init_scale = _split_model_params(init_model)
 
     fov_x, fov_y = _get_fov_from_sam_output(sam_out, image_size, device)
 
-    # 3) Optimize parameters with L2 (MSE) mask loss only.
-    #    Optimize only: pose, scale, shape, joint offsets. Keep camera and expression fixed.
-    shape_params = torch.nn.Parameter(init_shape.clone())
-    pose_params = torch.nn.Parameter(init_pose_wo_joint.clone())
-    scale_params = torch.nn.Parameter(init_scale.clone())
-    joint_offsets = torch.nn.Parameter(init_joint_offsets.clone())
+    if getattr(mhr_gs, "use_torchscript", True):
+        raise RuntimeError(
+            "DifferentiableMHRParameters requires MHR from pymomentum, not TorchScript. "
+            "Do not pass --mhr-model-path (or pass a path that does not exist) so that MHR.from_files() is used."
+        )
+    if not hasattr(mhr_gs.mhr, "character_torch") or not hasattr(mhr_gs.mhr.character_torch, "parameter_transform"):
+        raise RuntimeError("MHR character has no parameter_transform; cannot use DifferentiableMHRParameters.")
+
+    character_torch = mhr_gs.mhr.character_torch
+    pad_size = getattr(mhr_gs, "num_identity_blendshapes", 45) + getattr(
+        mhr_gs, "num_expr_blendshapes", 72
+    )
+    init_model_flat = init_model.squeeze(1)  # [1, 204]
+    padding = torch.zeros(1, pad_size, device=device, dtype=init_model_flat.dtype)
+    model_with_pad = torch.cat([init_model_flat, padding], dim=1)
+    joint_params_flat = character_torch.model_parameters_to_joint_parameters(model_with_pad)
+    J = character_torch.skeleton.joint_translation_offsets.shape[0]
+    joint_params = joint_params_flat.reshape(1, J, 7)
+    static_offsets = character_torch.skeleton.joint_translation_offsets
+    full_translation = (joint_params[0, :, :3] + static_offsets).clone()
+    diff_params = DifferentiableMHRParameters(
+        character_torch, batch_size=1, device=device, learnable_offsets=True
+    )
+    with torch.no_grad():
+        diff_params.joint_offsets.data = full_translation
+        diff_params.pose_params.data = joint_params[:, :, 3:6].clone()
+        diff_params.scale_params.data = joint_params[:, :, 6:7].clone()
+        diff_params.shape_params.data = init_shape.clone()
+    init_joint_offsets_diff = full_translation.clone()
+    init_pose_diff = joint_params[:, :, 3:6].clone()
+    init_scale_diff = joint_params[:, :, 6:7].clone()
+
+    learning_rates = {
+        "joint_offsets": args.lr_joint_offsets,
+        "pose": args.lr_pose,
+        "shape": args.lr_shape,
+        "scale": args.lr_scale,
+    }
+    optimizer = create_optimizer_for_params(diff_params, learning_rates)
     _print_param_block(
-        "Initial parameters:",
-        init_shape,
-        init_pose_wo_joint,
-        init_joint_offsets,
-        init_scale,
+        "Initial parameters (DifferentiableMHRParameters):",
+        diff_params.shape_params.detach(),
+        diff_params.pose_params.detach(),
+        diff_params.joint_offsets.detach(),
+        diff_params.scale_params.detach(),
     )
     print(f"  camera(fixed): {_tensor_stats(init_cam_t)}")
-
-    optimizer = torch.optim.Adam(
-        [
-            {"params": [pose_params], "lr": args.lr_pose},
-            {"params": [joint_offsets], "lr": args.lr_joint_offsets},
-            {"params": [scale_params], "lr": args.lr_scale},
-            {"params": [shape_params], "lr": args.lr_shape},
-        ]
-    )
 
     bg_color = torch.ones(3, device=device, dtype=torch.float32)
     gt_image_masked = gt_image * gt_mask + bg_color.view(1, 3, 1, 1) * (1.0 - gt_mask)
@@ -320,8 +325,9 @@ def run(args: argparse.Namespace) -> None:
     for step in range(args.num_iters):
         optimizer.zero_grad()
 
-        model_params = _compose_model_params(pose_params, joint_offsets, scale_params)
-        mhr_gs.set_animate_params(shape_params, model_params, init_expr)
+        joint_params_flat = diff_params.get_joint_parameters()  # [B, J*7]
+        mhr_gs.set_animate_params_joint_params(diff_params.shape_params, joint_params_flat, init_expr)
+
         gs = mhr_gs.to_gaussian_parameters(pose_indices=[0], to_colmap=True)
         gs = _prepare_gaussians_for_render(gs)
         camera = _build_camera_world2cam(init_cam_t[0], fov_x, fov_y, image_size, device)
@@ -333,7 +339,7 @@ def run(args: argparse.Namespace) -> None:
         loss_l2 = F.mse_loss(pred_mask, gt_mask)
         loss = args.w_l2 * loss_l2
         loss.backward()
-        torch.nn.utils.clip_grad_norm_([pose_params, joint_offsets, scale_params, shape_params], max_norm=1.0)
+        torch.nn.utils.clip_grad_norm_(diff_params.parameters(), max_norm=1.0)
         optimizer.step()
 
         if step % args.log_every == 0 or step == args.num_iters - 1:
@@ -350,8 +356,8 @@ def run(args: argparse.Namespace) -> None:
             )
 
     with torch.no_grad():
-        model_params = _compose_model_params(pose_params, joint_offsets, scale_params)
-        mhr_gs.set_animate_params(shape_params, model_params, init_expr)
+        joint_params_flat = diff_params.get_joint_parameters()  # [B, J*7]
+        mhr_gs.set_animate_params_joint_params(diff_params.shape_params, joint_params_flat, init_expr)
         final_gs = mhr_gs.to_gaussian_parameters(pose_indices=[0], to_colmap=True)
         final_gs = _prepare_gaussians_for_render(final_gs)
         camera = _build_camera_world2cam(init_cam_t[0], fov_x, fov_y, image_size, device)
@@ -373,36 +379,36 @@ def run(args: argparse.Namespace) -> None:
             output_dir=output_dir,
         )
 
+        pd = diff_params.get_parameter_dict()
         torch.save(
             {
                 "shape_init": init_shape.detach().cpu(),
                 "model_init": init_model.detach().cpu(),
-                "pose_init": init_pose_wo_joint.detach().cpu(),
-                "joint_offsets_init": init_joint_offsets.detach().cpu(),
-                "scale_init": init_scale.detach().cpu(),
-                "shape_final": shape_params.detach().cpu(),
-                "model_final": model_params.detach().cpu(),
-                "pose_final": pose_params.detach().cpu(),
-                "joint_offsets_final": joint_offsets.detach().cpu(),
-                "scale_final": scale_params.detach().cpu(),
+                "shape_final": pd["shape_params"].cpu(),
+                "joint_offsets_init": init_joint_offsets_diff.cpu(),
+                "joint_offsets_final": pd["joint_offsets"].cpu(),
+                "pose_final": pd["pose_params"].cpu(),
+                "scale_final": pd["scale_params"].cpu(),
                 "expr_fixed": init_expr.detach().cpu(),
                 "cam_t_fixed": init_cam_t.detach().cpu(),
             },
             output_dir / "optimized_params.pt",
         )
+    pd = diff_params.get_parameter_dict()
     _print_param_block(
-        "Final optimized parameters:",
-        shape_params,
-        pose_params,
-        joint_offsets,
-        scale_params,
+        "Final optimized parameters (DifferentiableMHRParameters):",
+        pd["shape_params"],
+        pd["pose_params"],
+        pd["joint_offsets"],
+        pd["scale_params"],
     )
+    init_jo = init_joint_offsets_diff.to(device)
     print(
         "Delta norms: "
-        f"shape={torch.norm(shape_params.detach() - init_shape.detach()).item():.6f}, "
-        f"pose={torch.norm(pose_params.detach() - init_pose_wo_joint.detach()).item():.6f}, "
-        f"joint_offsets={torch.norm(joint_offsets.detach() - init_joint_offsets.detach()).item():.6f}, "
-        f"scale={torch.norm(scale_params.detach() - init_scale.detach()).item():.6f}"
+        f"shape={torch.norm(pd['shape_params'].to(device) - init_shape).item():.6f}, "
+        f"pose={torch.norm(pd['pose_params'].to(device) - init_pose_diff.to(device)).item():.6f}, "
+        f"joint_offsets={torch.norm(pd['joint_offsets'].to(device) - init_jo).item():.6f}, "
+        f"scale={torch.norm(pd['scale_params'].to(device) - init_scale_diff.to(device)).item():.6f}"
     )
     print(f"Saved outputs to: {output_dir}")
 
@@ -415,7 +421,12 @@ def parse_args() -> argparse.Namespace:
 
     parser.add_argument("--sam-ckpt", type=str, default="/data/users/soham/baselines/sam-3d-body/checkpoints/sam-3d-body-dinov3/model.ckpt")
     parser.add_argument("--sam-mhr-path", type=str, default="/data/users/soham/baselines/sam-3d-body/checkpoints/sam-3d-body-dinov3/assets/mhr_model.pt")
-    parser.add_argument("--mhr-model-path", type=str, default="/data/users/soham/baselines/sam-3d-body/checkpoints/sam-3d-body-dinov3/assets/mhr_model.pt")
+    parser.add_argument(
+        "--mhr-model-path",
+        type=str,
+        default=None,
+        help="Must be unset so MHR loads from pymomentum (DifferentiableMHRParameters). Do not pass a .pt TorchScript path.",
+    )
     parser.add_argument("--lod", type=int, default=1)
 
     parser.add_argument("--height", type=int, default=512)
